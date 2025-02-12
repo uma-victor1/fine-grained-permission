@@ -1,7 +1,7 @@
 """
 PydanticAI demonstration of the AI Access Control Four Perimeters Framework
 
-This implementation demonstrates the four essential security perimeters for a financial advisor agent:
+This implementation demonstrates the four access control perimeters framework with a practical example of a financial advisor agent:
 1. Prompt Validation: Ensures queries comply with financial advice regulations
 2. RAG Permissions: Controls access to different levels of financial documentation
 3. Action Permissions: Manages access to financial analysis capabilities
