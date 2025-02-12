@@ -24,7 +24,7 @@ load_dotenv()  # load environment variables
 PERMIT_KEY = os.environ.get("PERMIT_KEY")
 if not PERMIT_KEY:
     raise ValueError("PERMIT_KEY environment variable not set")
-PDP_URL = "http://localhost:7100"
+PDP_URL = "http://localhost:7766"
 
 
 class SecurityError(Exception):
