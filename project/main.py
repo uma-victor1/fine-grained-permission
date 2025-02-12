@@ -1,5 +1,5 @@
 """
-Financial Advisor Agent with Four Security Perimeters
+PydanticAI demonstration of the AI Access Control Four Perimeters Framework
 
 This implementation demonstrates the four essential security perimeters for a financial advisor agent:
 1. Prompt Validation: Ensures queries comply with financial advice regulations
