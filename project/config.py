@@ -22,66 +22,62 @@ permit = Permit(
 # Define resources for Financial Advisor security
 resources = [
     {
-        "key": "certification",
-        "name": "Advisor Certification",
-        "description": "Certification levels for financial advice",
+        "key": "financial_advice",
+        "name": "Financial Advice",
+        "description": "AI-generated financial advice",
         "actions": {
-            "provide_advice": {},
-            "regulatory_compliance": {},
+            "receive": {},
         },
         "attributes": {
-            "level": {
-                "type": "string",
-                "description": "Certification level (general, professional, expert)",
-            },
-            "category": {
-                "type": "string",
-                "description": "Type of financial advice",
-            },
-        },
-    },
-    {
-        "key": "documentation",
-        "name": "Financial Documentation",
-        "description": "Financial knowledge and resources",
-        "actions": {
-            "access_professional_docs": {},
-            "access_expert_docs": {},
-        },
-        "attributes": {
-            "content_type": {
-                "type": "string",
-                "description": "Type of financial documentation",
+            "includes_ai_advice": {
+                "type": "bool",
+                "description": "Whether the content includes financial advice",
             }
         },
     },
     {
-        "key": "financial_action",
-        "name": "Financial Actions",
-        "description": "Protected financial advisory actions",
+        "key": "financial_document",
+        "name": "Financial Document",
+        "description": "Financial knowledge documents",
         "actions": {
-            "provide": {},
-            "analyze": {},
-            "recommend": {},
+            "read": {},
         },
         "attributes": {
-            "action": {
+            "doc_type": {
                 "type": "string",
-                "description": "Specific financial action type",
-            }
+                "description": "Type of financial document",
+            },
+            "classification": {
+                "type": "string",
+                "description": "Document classification level",
+            },
         },
     },
     {
-        "key": "response",
+        "key": "financial_response",
         "name": "Financial Response",
-        "description": "Financial advice response validation",
+        "description": "AI-generated response content",
         "actions": {
-            "compliance_validation": {},
+            "requires_disclaimer": {},
         },
         "attributes": {
-            "certification": {
+            "content": {
                 "type": "string",
-                "description": "Required certification level",
+                "description": "Response content to analyze",
+            }
+        },
+    },
+    {
+        "key": "portfolio",
+        "name": "Investment Portfolio",
+        "description": "User investment portfolio",
+        "actions": {
+            "update": {},
+        },
+        "attributes": {
+            "owner_id": {
+                "type": "string",
+                "description": "Portfolio owner ID",
             }
         },
     },
@@ -90,48 +86,18 @@ resources = [
 # Define roles with new permissions structure
 roles = [
     {
-        "name": "general_advisor",
+        "name": "basic_user",
         "permissions": [
-            {"resource": "certification", "actions": ["provide_advice"]},
-            {"resource": "documentation", "actions": []},  # Basic docs only
-            {"resource": "financial_action", "actions": ["provide"]},
-            {"resource": "response", "actions": ["compliance_validation"]},
+            {"resource": "financial_advice", "actions": ["receive"]},
+            {"resource": "financial_document", "actions": ["read"]},
         ],
     },
     {
-        "name": "professional_advisor",
+        "name": "premium_user",
         "permissions": [
-            {
-                "resource": "certification",
-                "actions": ["provide_advice", "regulatory_compliance"],
-            },
-            {
-                "resource": "documentation",
-                "actions": ["access_professional_docs"],
-            },
-            {
-                "resource": "financial_action",
-                "actions": ["provide", "analyze"],
-            },
-            {"resource": "response", "actions": ["compliance_validation"]},
-        ],
-    },
-    {
-        "name": "expert_advisor",
-        "permissions": [
-            {
-                "resource": "certification",
-                "actions": ["provide_advice", "regulatory_compliance"],
-            },
-            {
-                "resource": "documentation",
-                "actions": ["access_professional_docs", "access_expert_docs"],
-            },
-            {
-                "resource": "financial_action",
-                "actions": ["provide", "analyze", "recommend"],
-            },
-            {"resource": "response", "actions": ["compliance_validation"]},
+            {"resource": "financial_advice", "actions": ["receive"]},
+            {"resource": "financial_document", "actions": ["read"]},
+            {"resource": "portfolio", "actions": ["update"]},
         ],
     },
 ]

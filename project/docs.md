@@ -13,11 +13,13 @@ Demonstrates:
 
 ### Prompt Validation
 
-Controls what financial questions users can ask based on:
+Validates whether users have explicitly consented to receive AI-generated financial advice.
 
-- Advisor certification level required (general, professional, expert)
-- Regulatory requirements for different advice types
-- Portfolio analysis permissions
+Key checks:
+
+- User has explicitly opted in to AI financial advice
+- Consent is properly recorded and verified
+- Compliance with regulatory requirements for automated advice
 
 ```python
 @financial_agent.tool
@@ -29,12 +31,12 @@ query: FinancialQuery,
 
 ### RAG Permissions
 
-Manages access to financial documentation and knowledge bases:
+Controls access to financial knowledge base and documentation based on user permissions and document classification levels
 
-- Basic financial education materials
-- Professional advisor resources
-- Expert-level analysis tools
-- Regulatory compliance documentation
+- Document classification levels (public, restricted, confidential)
+- User clearance level verification
+- Regulatory compliance for information access
+- Audit trail of document access
 
 ```python
 @financial_agent.tool
@@ -47,12 +49,12 @@ query: FinancialQuery
 
 ### Action Permissions
 
-Controls access to specific financial advisory actions:
+Controls permissions for sensitive financial operations, particularly portfolio modifications.
 
-- Basic financial advice
-- Portfolio analysis capabilities
-- Investment recommendations
-- Risk assessment tools
+- Portfolio ownership verification
+- User authorization level
+- Transaction limits compliance
+- Account access restrictions
 
 ```python
 @financial_agent.tool
@@ -66,12 +68,12 @@ context: UserContext
 
 ### Response Validation
 
-Ensures compliance in financial advice delivery:
+Ensures all financial advice responses meet regulatory requirements and include
+necessary disclaimers.
 
-- Required disclaimers
-- Risk warnings
-- Certification level disclosure
-- Regulatory compliance checks
+- Automated advice detection using Permit
+- Regulatory disclaimer insertion
+- Compliance verification
 
 ```
 @financial_agent.tool

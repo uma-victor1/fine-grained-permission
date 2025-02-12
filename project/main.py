@@ -40,23 +40,31 @@ class UserContext(BaseModel):
     tier: str = Field(default="free")
 
 
+class FinancialDocument(BaseModel):
+    """Model for financial documents"""
+
+    id: str
+    type: str = Field(
+        ..., description="Document type (e.g., 'investment', 'tax', 'retirement')"
+    )
+    content: str
+    classification: str = Field(..., description="Document classification level")
+
+
 class FinancialQuery(BaseModel):
     """Input model for financial queries"""
 
     question: str
     context: UserContext
-    risk_profile: Optional[str] = None
-    portfolio_value: Optional[float] = None
-    investment_horizon: Optional[str] = None
+    documents: Optional[List[FinancialDocument]] = None
 
 
 class FinancialResponse(BaseModel):
     """Output model for financial advice"""
 
     answer: str
-    compliance_notes: List[str] = Field(default_factory=list)
-    certification_level: str = "general"  # general, professional, expert
-    risk_warnings: List[str] = Field(default_factory=list)
+    includes_advice: bool = False
+    disclaimer_added: bool = False
 
 
 @dataclass
@@ -86,36 +94,44 @@ financial_agent = Agent(
 async def validate_financial_query(
     ctx: RunContext[PermitDeps],
     query: FinancialQuery,
-) -> Dict[str, bool]:
+) -> bool:
     """SECURITY PERIMETER 1: Prompt Validation
-
-    Validates financial queries against regulatory requirements and advisor certification levels.
-    Ensures queries are appropriate for the advisor's certification and user's permission level.
+    Validates whether users have explicitly consented to receive AI-generated financial advice.
+    Ensures compliance with financial regulations regarding automated advice systems.
 
     Key checks:
-    - Query matches advisor's certification level
-    - Query complies with financial advice regulations
+    - User has explicitly opted in to AI financial advice
+    - Consent is properly recorded and verified
+
+    Args:
+        ctx: Context containing Permit client and user ID
+        query: The financial query to validate
+
+    Returns:
+        bool: True if user has consented to AI advice, False otherwise
     """
     try:
-        # Check advisor certification level permission
-        certification_check = await ctx.deps.permit.check(
-            ctx.deps.user_id,
-            "provide_advice",
-            {"type": "certification", "level": get_required_certification(query)},
+        permitted = await ctx.deps.permit.check(
+            # The user object with their attributes
+            {
+                "key": ctx.deps.user_id,
+                "attributes": {
+                    # This attribute would be set when user opts in
+                    "ai_advice_opted_in": "false"
+                },
+            },
+            # The action being performed
+            "receive",
+            # The resource being accessed
+            {"type": "financial_advice", "attributes": {"is_ai_generated": "false"}},
         )
 
-        # Validate against regulatory requirements
-        regulatory_check = await ctx.deps.permit.check(
-            ctx.deps.user_id,
-            "regulatory_compliance",
-            {"type": "advice_type", "category": categorize_query(query)},
-        )
+        if not permitted:
+            raise SecurityError(
+                "User has not opted in to receive AI-generated financial advice"
+            )
 
-        return {
-            "permitted": certification_check and regulatory_check,
-            "certification_level": get_required_certification(query),
-            "warnings": get_regulatory_warnings(query),
-        }
+        return True
 
     except PermitApiError as e:
         raise SecurityError(f"Advice permission check failed: {str(e)}")
@@ -123,370 +139,153 @@ async def validate_financial_query(
 
 @financial_agent.tool
 async def access_financial_knowledge(
-    ctx: RunContext[PermitDeps], query: FinancialQuery
-) -> List[str]:
-    """SECURITY PERIMETER 2: RAG Permissions
+    ctx: RunContext[PermitDeps], documents: List[FinancialDocument]
+) -> List[FinancialDocument]:
+    """SECURITY PERIMETER 2: RAG Protection
+    Controls access to financial knowledge base and documentation based on user permissions
+    and document classification levels. Implements information barriers and content restrictions.
 
-    Controls access to financial documentation and knowledge bases based on
-    certification levels and regulatory requirements.
+    Key aspects:
+    - Document classification levels (public, restricted, confidential)
+    - User clearance level verification
+    - Regulatory compliance for information access
 
-    Access levels:
-    - Basic: General financial education materials
-    - Professional: Licensed advisor materials
-    - Expert: Advanced analysis and specialized advice
+    Args:
+        ctx: Context containing Permit client and user ID
+        documents: List of financial documents to filter
+
+    Returns:
+        List[FinancialDocument]: Filtered list of documents user is allowed to access
     """
     try:
-        # Basic financial knowledge available to all
-        allowed_docs = ["general_education", "basic_principles"]
+        # Create resource instances for each document
+        resources = [
+            {
+                "type": "financial_document",
+                "attributes": {
+                    "doc_type": doc.type,
+                    "classification": doc.classification,
+                },
+            }
+            for doc in documents
+        ]
 
-        # Check professional documentation access
-        professional_access = await ctx.deps.permit.check(
-            ctx.deps.user_id, "access_professional_docs", "documentation"
+        # Use Permit's filter_objects to get allowed documents
+        allowed_docs = await ctx.deps.permit.filter_objects(
+            ctx.deps.user_id, "read", resources
         )
-        if professional_access:
-            allowed_docs.extend(
-                [
-                    "professional_guidelines",
-                    "regulatory_frameworks",
-                    "investment_strategies",
-                ]
-            )
 
-        # Check expert documentation access
-        expert_access = await ctx.deps.permit.check(
-            ctx.deps.user_id, "access_expert_docs", "documentation"
-        )
-        if expert_access:
-            allowed_docs.extend(
-                [
-                    "advanced_analysis",
-                    "specialized_strategies",
-                    "institutional_research",
-                ]
-            )
-
-        return allowed_docs
+        # Return only the documents that were allowed
+        allowed_ids = {doc["id"] for doc in allowed_docs}
+        return [doc for doc in documents if doc.id in allowed_ids]
 
     except PermitApiError as e:
-        raise SecurityError(f"Documentation access check failed: {str(e)}")
+        raise SecurityError(f"Failed to filter documents: {str(e)}")
 
 
 @financial_agent.tool
 async def check_action_permissions(
-    ctx: RunContext[PermitDeps], action: str, context: UserContext
+    ctx: RunContext[PermitDeps], action: str, context: UserContext, portfolio_id: str
 ) -> bool:
-    """SECURITY PERIMETER 3: Action Permissions
+    """SECURITY PERIMETER 3: Action Authorization
+    Controls permissions for sensitive financial operations, particularly portfolio
+    modifications. Ensures only authorized users can perform account-level changes.
 
-    Controls access to specific financial analysis and advisory actions based on
-    certification level and regulatory requirements.
+    Key checks:
+    - Portfolio ownership verification
 
-    Protected actions:
-    - Portfolio analysis
-    - Risk assessment
-    - Investment recommendations
-    - Tax strategy
+    Args:
+        ctx: Context containing Permit client and user ID
+        portfolio_id: Identifier of the portfolio to update
+
+    Returns:
+        bool: True if user is authorized to update portfolio, False otherwise
     """
+
     try:
-        action_permissions = {
-            "basic_advice": await ctx.deps.permit.check(
-                ctx.deps.user_id,
-                "provide",
-                {"type": "financial_action", "action": "basic_advice"},
-            ),
-            "portfolio_analysis": await ctx.deps.permit.check(
-                ctx.deps.user_id,
-                "analyze",
-                {"type": "financial_action", "action": "portfolio_analysis"},
-            ),
-            "specific_recommendations": await ctx.deps.permit.check(
-                ctx.deps.user_id,
-                "recommend",
-                {"type": "financial_action", "action": "specific_recommendations"},
-            ),
-        }
-
-        return action_permissions.get(action, False)
-
+        return await ctx.deps.permit.check(
+            ctx.deps.user_id,
+            "update",
+            {
+                "type": "portfolio",
+            },
+        )
     except PermitApiError as e:
-        raise SecurityError(f"Action permission check failed: {str(e)}")
+        raise SecurityError(f"Failed to check portfolio update permission: {str(e)}")
 
 
 @financial_agent.tool
 async def validate_financial_response(
-    ctx: RunContext[PermitDeps], response: FinancialResponse, context: UserContext
-) -> Dict[str, bool]:
-    """SECURITY PERIMETER 4: Response Validation
+    ctx: RunContext[PermitDeps], response: FinancialResponse
+) -> FinancialResponse:
+    """SECURITY PERIMETER 4: Secure Responses
+    Ensures all financial advice responses meet regulatory requirements and include
+    necessary disclaimers.
 
-    Ensures all financial advice responses meet regulatory requirements and
-    include necessary disclaimers and risk warnings.
-
-    Validation checks:
-    - Required disclaimers present
-    - Risk warnings appropriate
-    - Certification level disclosed
-    - Compliance with regulatory guidelines
-    """
-    try:
-        # Validate compliance requirements
-        compliance_check = await ctx.deps.permit.check(
-            ctx.deps.user_id,
-            "compliance_validation",
-            {"type": "response", "certification": response.certification_level},
-        )
-
-        # Ensure required disclaimers
-        required_disclaimers = get_required_disclaimers(response.certification_level)
-        missing_disclaimers = [
-            d for d in required_disclaimers if d not in response.compliance_notes
-        ]
-        if missing_disclaimers:
-            response.compliance_notes.extend(missing_disclaimers)
-
-        # Validate risk warnings
-        if needs_risk_warnings(response.answer):
-            required_warnings = get_required_risk_warnings(response.answer)
-            response.risk_warnings.extend(required_warnings)
-
-        return {
-            "permitted": compliance_check,
-            "certification_verified": response.certification_level,
-            "warnings": response.compliance_notes + response.risk_warnings,
-        }
-
-    except PermitApiError as e:
-        raise SecurityError(f"Response validation failed: {str(e)}")
+    Key features:
+    - Automated advice detection using Permit
+    - Regulatory disclaimer insertion
 
 
-"""
-Helper functions for Financial Advisor security perimeters.
-These functions implement the business logic for certification requirements,
-risk assessment, and regulatory compliance.
-"""
-
-
-def get_required_certification(query: FinancialQuery) -> str:
-    """
-    Determine required certification level based on query content.
+    Args:
+        ctx: Context containing Permit client and user ID
+        response: The financial response to validate
 
     Returns:
-        str: "general", "professional", or "expert"
+        FinancialResponse: Validated response with appropriate disclaimers added
     """
-    # Keywords indicating complexity level
-    expert_keywords = [
-        "derivatives",
-        "hedge",
-        "institutional",
-        "merger",
-        "acquisition",
-        "structured products",
-        "foreign exchange",
-        "forex",
-        "options trading",
-    ]
-    professional_keywords = [
-        "portfolio",
-        "tax strategy",
-        "estate planning",
-        "retirement",
-        "investment strategy",
-        "risk assessment",
-        "asset allocation",
-    ]
 
-    question = query.question.lower()
-
-    # Check for expert-level advice needs
-    if any(keyword in question for keyword in expert_keywords):
-        return "expert"
-
-    # Check for professional-level advice needs
-    if any(keyword in question for keyword in professional_keywords):
-        return "professional"
-
-    # Check if portfolio value requires higher certification
-    if query.portfolio_value:
-        if query.portfolio_value >= 1000000:  # $1M+ portfolios need expert
-            return "expert"
-        elif query.portfolio_value >= 100000:  # $100k+ portfolios need professional
-            return "professional"
-
-    return "general"
-
-
-def needs_risk_profile(query: FinancialQuery) -> bool:
-    """
-    Determine if query requires risk profile information.
-    """
-    risk_required_keywords = [
-        "invest",
-        "portfolio",
-        "allocation",
-        "strategy",
-        "return",
-        "growth",
-        "income",
-        "risk",
-    ]
-
-    # Check if query involves investment advice
-    question = query.question.lower()
-    requires_risk = any(keyword in question for keyword in risk_required_keywords)
-
-    # Always require risk profile for portfolio analysis
-    if query.portfolio_value is not None:
-        return True
-
-    return requires_risk
-
-
-def categorize_query(query: FinancialQuery) -> str:
-    """
-    Categorize the type of financial advice being requested.
-    """
-    categories = {
-        "investment": ["invest", "stock", "bond", "portfolio", "fund"],
-        "retirement": ["retire", "pension", "401k", "ira"],
-        "tax": ["tax", "deduction", "write-off", "exemption"],
-        "estate": ["estate", "will", "trust", "inheritance"],
-        "general": ["advice", "recommend", "should i", "how to"],
-    }
-
-    question = query.question.lower()
-
-    for category, keywords in categories.items():
-        if any(keyword in question for keyword in keywords):
-            return category
-
-    return "general"
-
-
-def get_regulatory_warnings(query: FinancialQuery) -> List[str]:
-    """
-    Generate list of required regulatory warnings based on query type.
-    """
-    warnings = []
-    category = categorize_query(query)
-
-    # Base warning for all financial advice
-    warnings.append(
-        "This information is for educational purposes only and not financial advice"
-    )
-
-    # Category-specific warnings
-    category_warnings = {
-        "investment": [
-            "Past performance is not indicative of future results",
-            "Investment involves risk of loss",
-        ],
-        "retirement": [
-            "Consult a tax professional for specific retirement advice",
-            "Early withdrawal penalties may apply",
-        ],
-        "tax": [
-            "Tax laws are subject to change",
-            "Consult a tax professional for your specific situation",
-        ],
-        "estate": [
-            "Estate laws vary by jurisdiction",
-            "Consult a legal professional for estate planning",
-        ],
-    }
-
-    warnings.extend(category_warnings.get(category, []))
-
-    # Add risk-specific warnings
-    if needs_risk_profile(query):
-        warnings.append(
-            "A complete risk assessment is required for personalized investment advice"
+    try:
+        # Check if response contains financial advice using Permit
+        contains_advice = await ctx.deps.permit.check(
+            ctx.deps.user_id,
+            "requires_disclaimer",
+            {"type": "financial_response", "attributes": {"content": response.answer}},
         )
 
-    return warnings
+        if contains_advice:
+            disclaimer = (
+                "\n\nIMPORTANT DISCLAIMER: This is AI-generated financial advice. "
+                "This information is for educational purposes only and should not be "
+                "considered as professional financial advice. Always consult with a "
+                "qualified financial advisor before making investment decisions."
+            )
+            response.answer += disclaimer
+            response.disclaimer_added = True
+
+        return response
+
+    except PermitApiError as e:
+        raise SecurityError(f"Failed to check response content: {str(e)}")
 
 
-def get_required_disclaimers(certification_level: str) -> List[str]:
-    """
-    Get required disclaimers based on certification level.
-    """
-    # Base disclaimers for all levels
-    base_disclaimers = [
-        "Past performance is not indicative of future results",
-        "Financial advice may not be suitable for everyone",
-    ]
-
-    level_specific_disclaimers = {
-        "general": [
-            "This is general information only",
-            "Consult a professional for specific advice",
-        ],
-        "professional": [
-            "Advice is based on provided information",
-            "Additional consultation may be required",
-            "Services provided under professional certification",
-        ],
-        "expert": [
-            "Complex financial products carry significant risks",
-            "Services provided under expert certification",
-            "Regular review and updates recommended",
-        ],
-    }
-
-    return base_disclaimers + level_specific_disclaimers.get(certification_level, [])
-
-
-def needs_risk_warnings(response_text: str) -> bool:
-    """
-    Determine if response requires additional risk warnings.
-    """
-    risk_triggers = [
-        "invest",
-        "risk",
-        "return",
-        "growth",
-        "portfolio",
-        "stock",
-        "bond",
-        "fund",
-        "market",
-        "trade",
-    ]
-
-    return any(trigger in response_text.lower() for trigger in risk_triggers)
-
-
-def get_required_risk_warnings(response_text: str) -> List[str]:
-    """
-    Generate risk warnings based on response content.
-    """
-    warnings = []
-    text = response_text.lower()
-
-    # Check for specific investment types and add relevant warnings
-    if "stock" in text or "equity" in text:
-        warnings.append("Stock investments can result in significant loss of principal")
-
-    if "bond" in text or "fixed income" in text:
-        warnings.append("Bond values fluctuate with interest rates and credit quality")
-
-    if "international" in text or "foreign" in text:
-        warnings.append(
-            "International investments carry additional risks including currency fluctuations"
-        )
-
-    if "small" in text and ("cap" in text or "company" in text):
-        warnings.append(
-            "Small cap investments may have limited liquidity and higher volatility"
-        )
-
-    if "high" in text and "yield" in text:
-        warnings.append("High yield investments carry increased default risk")
-
-    # Add general warning if any investment terms are found
-    if warnings:
-        warnings.append(
-            "All investments carry risk of loss. Diversification does not guarantee against loss."
-        )
-
-    return warnings
+# Initialize example documents
+SAMPLE_DOCUMENTS = {
+    "inv_001": FinancialDocument(
+        id="inv_001",
+        type="investment",
+        content="Tech Growth Fund performance analysis shows a 15% YoY return...",
+        classification="confidential",
+    ),
+    "tax_001": FinancialDocument(
+        id="tax_001",
+        type="tax",
+        content="Tax optimization strategies for high-income investors...",
+        classification="restricted",
+    ),
+    "ret_001": FinancialDocument(
+        id="ret_001",
+        type="retirement",
+        content="401(k) contribution strategies and employer matching...",
+        classification="public",
+    ),
+    "inv_002": FinancialDocument(
+        id="inv_002",
+        type="investment",
+        content="ESG Fund analysis and sustainable investment opportunities...",
+        classification="public",
+    ),
+}
 
 
 # Example usage
