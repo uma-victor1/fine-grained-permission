@@ -2,10 +2,12 @@
 PydanticAI demonstration of the AI Access Control Four Perimeters Framework
 
 This implementation demonstrates the four access control perimeters framework with a practical example of a financial advisor agent:
-1. Prompt Validation: Ensures queries comply with financial advice regulations
-2. RAG Permissions: Controls access to different levels of financial documentation
-3. Action Permissions: Manages access to financial analysis capabilities
-4. Response Validation: Enforces compliance requirements in responses
+1. Prompt Filtering: Ensures queries comply with financial advice regulations
+2. Data Protection: Controls access to different levels of financial documentation
+3. Secure External Access: Manages access to financial analysis capabilities
+4. Response Enforcement: Enforces compliance requirements in responses
+
+This demo uses Permit.io for fine-grained access control and PydanticAI for secure AI interactions.
 """
 
 from typing import Dict, List, Optional
@@ -20,11 +22,11 @@ from dataclasses import dataclass
 
 load_dotenv()  # load environment variables
 
-# Permit.io API key
+# Permit.io configuration from environment
 PERMIT_KEY = os.environ.get("PERMIT_KEY")
 if not PERMIT_KEY:
     raise ValueError("PERMIT_KEY environment variable not set")
-PDP_URL = "http://localhost:7766"
+PDP_URL = os.environ.get("PDP_URL", "http://localhost:7100")
 
 
 class SecurityError(Exception):
@@ -34,25 +36,30 @@ class SecurityError(Exception):
 
 
 class UserContext(BaseModel):
-    """User context with permissions information"""
+    """User context containing identity and role information for permission checks"""
 
     user_id: str
-    tier: str = Field(default="free")
+    tier: str = Field(
+        description="User's permission tier (opted_in_user, restricted_user, premium_user)"
+    )
 
 
 class FinancialDocument(BaseModel):
-    """Model for financial documents"""
+    """Model for financial documents with classification levels"""
 
     id: str
     type: str = Field(
         ..., description="Document type (e.g., 'investment', 'tax', 'retirement')"
     )
     content: str
-    classification: str = Field(..., description="Document classification level")
+    classification: str = Field(
+        ...,
+        description="Document classification level (public, restricted, confidential)",
+    )
 
 
 class FinancialQuery(BaseModel):
-    """Input model for financial queries"""
+    """Input model for financial queries with context for permission checks"""
 
     question: str
     context: UserContext
@@ -60,16 +67,20 @@ class FinancialQuery(BaseModel):
 
 
 class FinancialResponse(BaseModel):
-    """Output model for financial advice"""
+    """Output model for financial advice with compliance tracking"""
 
     answer: str
-    includes_advice: bool = False
-    disclaimer_added: bool = False
+    includes_advice: bool = Field(
+        default=False, description="Indicates if response contains financial advice"
+    )
+    disclaimer_added: bool = Field(
+        default=False, description="Tracks if regulatory disclaimer was added"
+    )
 
 
 @dataclass
 class PermitDeps:
-    """Dependencies for security-focused agent"""
+    """Dependencies for Permit.io integration"""
 
     permit: Permit
     user_id: str
@@ -82,12 +93,39 @@ class PermitDeps:
             )
 
 
-# Initialize the financial advisor agent
+# Initialize the financial advisor agent with security focus
 financial_agent = Agent(
     "anthropic:claude-3-5-sonnet-latest",
     deps_type=PermitDeps,
-    system_prompt="You are a secure financial advisor assistant.",
+    system_prompt="You are a secure financial advisor assistant that adheres to regulatory compliance.",
 )
+
+
+def classify_prompt_for_advice(question: str) -> bool:
+    """
+    Mock classifier that checks if the prompt is requesting financial advice.
+    In a real implementation, this would use more sophisticated NLP/ML techniques.
+
+    Args:
+        question: The user's query text
+
+    Returns:
+        bool: True if the prompt is seeking financial advice, False if just information
+    """
+    # Simple keyword-based classification
+    advice_keywords = [
+        "should i",
+        "recommend",
+        "advice",
+        "suggest",
+        "help me",
+        "what's best",
+        "what is best",
+        "better option",
+    ]
+
+    question_lower = question.lower()
+    return any(keyword in question_lower for keyword in advice_keywords)
 
 
 @financial_agent.tool
@@ -95,13 +133,17 @@ async def validate_financial_query(
     ctx: RunContext[PermitDeps],
     query: FinancialQuery,
 ) -> bool:
-    """SECURITY PERIMETER 1: Prompt Validation
+    """SECURITY PERIMETER 1: Prompt Filtering
     Validates whether users have explicitly consented to receive AI-generated financial advice.
     Ensures compliance with financial regulations regarding automated advice systems.
 
     Key checks:
     - User has explicitly opted in to AI financial advice
     - Consent is properly recorded and verified
+    - Classifies if the prompt is requesting advice
+
+    Expected users in Permit.io:
+    - opted_in_user (ai_advice_opted_in: true) - Has opted in to receive AI advice
 
     Args:
         ctx: Context containing Permit client and user ID
@@ -111,37 +153,44 @@ async def validate_financial_query(
         bool: True if user has consented to AI advice, False otherwise
     """
     try:
+        # Classify if the prompt is requesting advice
+        is_seeking_advice = classify_prompt_for_advice(query.question)
+
         permitted = await ctx.deps.permit.check(
             # The user object with their attributes
             {
                 "key": ctx.deps.user_id,
-                "attributes": {
-                    # This attribute would be set when user opts in
-                    "ai_advice_opted_in": "false"
-                },
             },
             # The action being performed
             "receive",
             # The resource being accessed
-            {"type": "financial_advice", "attributes": {"is_ai_generated": "false"}},
+            {
+                "type": "financial_advice",
+                "attributes": {"is_ai_generated": str(is_seeking_advice)},
+            },
         )
 
         if not permitted:
-            raise SecurityError(
-                "User has not opted in to receive AI-generated financial advice"
-            )
+            if is_seeking_advice:
+                raise SecurityError(
+                    "User has not opted in to receive AI-generated financial advice"
+                )
+            else:
+                raise SecurityError(
+                    "User does not have permission to access this information"
+                )
 
         return True
 
     except PermitApiError as e:
-        raise SecurityError(f"Advice permission check failed: {str(e)}")
+        raise SecurityError(f"Permission check failed: {str(e)}")
 
 
 @financial_agent.tool
 async def access_financial_knowledge(
     ctx: RunContext[PermitDeps], documents: List[FinancialDocument]
 ) -> List[FinancialDocument]:
-    """SECURITY PERIMETER 2: RAG Protection
+    """SECURITY PERIMETER 2: Data Protection
     Controls access to financial knowledge base and documentation based on user permissions
     and document classification levels. Implements information barriers and content restrictions.
 
@@ -187,12 +236,14 @@ async def access_financial_knowledge(
 async def check_action_permissions(
     ctx: RunContext[PermitDeps], action: str, context: UserContext, portfolio_id: str
 ) -> bool:
-    """SECURITY PERIMETER 3: Action Authorization
+    """SECURITY PERIMETER 3: Secure External Access
     Controls permissions for sensitive financial operations, particularly portfolio
     modifications. Ensures only authorized users can perform account-level changes.
 
     Key checks:
     - Portfolio ownership verification
+    - External API access control
+
 
     Args:
         ctx: Context containing Permit client and user ID
@@ -214,36 +265,74 @@ async def check_action_permissions(
         raise SecurityError(f"Failed to check portfolio update permission: {str(e)}")
 
 
+def classify_response_for_advice(response_text: str) -> bool:
+    """
+    Mock classifier that checks if the response contains financial advice.
+    In a real implementation, this would use:
+    - NLP to detect advisory language patterns
+    - ML models trained on financial advice datasets
+
+
+    Args:
+        response_text: The AI-generated response text
+
+    Returns:
+        bool: True if the response contains financial advice, False if just information
+    """
+    # Simple keyword-based classification
+    advice_indicators = [
+        "recommend",
+        "should",
+        "consider",
+        "advise",
+        "suggest",
+        "better to",
+        "optimal",
+        "best option",
+        "strategy",
+        "allocation",
+    ]
+
+    response_lower = response_text.lower()
+    return any(indicator in response_lower for indicator in advice_indicators)
+
+
 @financial_agent.tool
 async def validate_financial_response(
     ctx: RunContext[PermitDeps], response: FinancialResponse
 ) -> FinancialResponse:
-    """SECURITY PERIMETER 4: Secure Responses
+    """SECURITY PERIMETER 4: Response Enforcement
     Ensures all financial advice responses meet regulatory requirements and include
     necessary disclaimers.
 
     Key features:
-    - Automated advice detection using Permit
-    - Regulatory disclaimer insertion
-
+    - Automated advice detection using content classification
+    - Regulatory disclaimer enforcement
+    - Compliance verification and auditing
 
     Args:
         ctx: Context containing Permit client and user ID
         response: The financial response to validate
 
     Returns:
-        FinancialResponse: Validated response with appropriate disclaimers added
+        FinancialResponse: Validated and compliant response
     """
 
     try:
-        # Check if response contains financial advice using Permit
-        contains_advice = await ctx.deps.permit.check(
+        # Classify if response contains financial advice
+        contains_advice = classify_response_for_advice(response.answer)
+
+        # Check if user is allowed to receive this type of response
+        permitted = await ctx.deps.permit.check(
             ctx.deps.user_id,
             "requires_disclaimer",
-            {"type": "financial_response", "attributes": {"content": response.answer}},
+            {
+                "type": "financial_response",
+                "attributes": {"contains_advice": str(contains_advice)},
+            },
         )
 
-        if contains_advice:
+        if contains_advice and permitted:
             disclaimer = (
                 "\n\nIMPORTANT DISCLAIMER: This is AI-generated financial advice. "
                 "This information is for educational purposes only and should not be "
@@ -252,6 +341,7 @@ async def validate_financial_response(
             )
             response.answer += disclaimer
             response.disclaimer_added = True
+            response.includes_advice = True
 
         return response
 
@@ -296,31 +386,30 @@ async def main():
         pdp=PDP_URL,
     )
 
-    # Create deps for a free tier user
-    deps = PermitDeps(permit=permit, user_id="umavictor11@gmail.com")
+    # Create security context for the user
+    deps = PermitDeps(permit=permit, user_id="user@example.com")
 
-    # Try to use our secured agent
     try:
-        # Example 1: Basic financial advice (Free tier)
+        # Example: Process a financial query with all security perimeters
         result = await financial_agent.run(
             "What are some basic investment strategies for beginners?",
             deps=deps,
         )
-        print(f"Basic advice result: {result.data}")
+        print(f"Secure response: {result.data}")
 
-        # Example 2: Try premium feature (Portfolio analysis)
+        # Example: Portfolio analysis with elevated permissions
         portfolio_result = await financial_agent.run(
             "Can you analyze my investment portfolio? My current allocation is 60% stocks, 30% bonds, 10% cash.",
             deps=deps,
         )
-        print(f"Portfolio analysis result: {portfolio_result.data}")
+        print(f"Portfolio analysis: {portfolio_result.data}")
 
-        # Example 3: Access documentation
+        # Example: Access to protected documentation
         docs_result = await financial_agent.run(
             "Can you provide advanced tax optimization strategies?",
             deps=deps,
         )
-        print(f"Documentation access result: {docs_result.data}")
+        print(f"Protected document access: {docs_result.data}")
 
     except SecurityError as e:
         print(f"Security check failed: {str(e)}")

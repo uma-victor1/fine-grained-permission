@@ -1,5 +1,11 @@
 """
 Permit.io configuration for Financial Advisor security perimeters.
+Sets up the complete ABAC (Attribute-Based Access Control) model including:
+- Resources and their attributes
+- Roles and their base permissions
+- Condition sets for fine-grained access control
+- User sets with their attributes
+- Resource sets based on classification levels
 """
 
 import asyncio
@@ -11,7 +17,7 @@ load_dotenv()
 
 # API keys
 PERMIT_KEY = os.environ["PERMIT_KEY"]
-PDP_URL = "http://localhost:7100"
+PDP_URL = os.environ.get("PDP_URL", "http://localhost:7100")
 
 # Initialize Permit.io SDK
 permit = Permit(
@@ -29,10 +35,14 @@ resources = [
             "receive": {},
         },
         "attributes": {
-            "includes_ai_advice": {
+            "is_ai_generated": {
                 "type": "bool",
-                "description": "Whether the content includes financial advice",
-            }
+                "description": "Whether the advice is AI-generated",
+            },
+            "risk_level": {
+                "type": "string",
+                "description": "Risk level of the advice (low, medium, high)",
+            },
         },
     },
     {
@@ -51,6 +61,10 @@ resources = [
                 "type": "string",
                 "description": "Document classification level",
             },
+            "clearance_required": {
+                "type": "string",
+                "description": "Required clearance level to access",
+            },
         },
     },
     {
@@ -61,10 +75,14 @@ resources = [
             "requires_disclaimer": {},
         },
         "attributes": {
-            "content": {
+            "contains_advice": {
+                "type": "bool",
+                "description": "Whether the response contains financial advice",
+            },
+            "risk_level": {
                 "type": "string",
-                "description": "Response content to analyze",
-            }
+                "description": "Risk level of the response",
+            },
         },
     },
     {
@@ -73,70 +91,197 @@ resources = [
         "description": "User investment portfolio",
         "actions": {
             "update": {},
+            "read": {},
+            "analyze": {},
         },
         "attributes": {
             "owner_id": {
                 "type": "string",
                 "description": "Portfolio owner ID",
-            }
+            },
+            "value_tier": {
+                "type": "string",
+                "description": "Portfolio value classification",
+            },
         },
     },
 ]
 
-# Define roles with new permissions structure
+
+# Define user sets with their attributes
+user_sets = [
+    {
+        "key": "opted_in_users",
+        "name": "AI Advice Opted-in Users",
+        "description": "Users who have consented to AI-generated advice",
+        "type": "userset",
+        "conditions": {"allOf": [{"user.ai_advice_opted_in": {"equals": True}}]},
+    },
+    {
+        "key": "high_clearance_users",
+        "name": "High Clearance Users",
+        "description": "Users with high-level document access",
+        "type": "userset",
+        "conditions": {"allOf": [{"user.clearance_level": {"equals": "high"}}]},
+    },
+]
+
+# Define resource sets based on classification
+resource_sets = [
+    {
+        "key": "confidential_docs",
+        "type": "resourceset",
+        "resource_id": "financial_document",
+        "name": "Confidential Documents",
+        "description": "Documents with confidential classification",
+        "conditions": {
+            "allOf": [{"resource.classification": {"equals": "confidential"}}]
+        },
+    },
+    {
+        "key": "high_risk_advice",
+        "type": "resourceset",
+        "resource_id": "financial_advice",
+        "name": "High Risk Financial Advice",
+        "description": "Financial advice with high risk level",
+        "conditions": {"allOf": [{"resource.risk_level": {"equals": "high"}}]},
+    },
+]
+
+
+# Define roles with ABAC rules
 roles = [
     {
-        "name": "basic_user",
+        "name": "opted_in_user",
         "permissions": [
-            {"resource": "financial_advice", "actions": ["receive"]},
-            {"resource": "financial_document", "actions": ["read"]},
+            {
+                "resource": "financial_advice",
+                "actions": ["receive"],
+                "attributes": {"is_ai_generated": ["true", "false"]},
+                "condition_sets": ["opt_in_check", "risk_level_check"],
+            },
+            {
+                "resource": "financial_document",
+                "actions": ["read"],
+                "condition_sets": ["document_clearance"],
+            },
+        ],
+    },
+    {
+        "name": "restricted_user",
+        "permissions": [
+            {
+                "resource": "financial_advice",
+                "actions": ["receive"],
+                "attributes": {"is_ai_generated": ["false"]},
+            },
+            {
+                "resource": "financial_document",
+                "actions": ["read"],
+                "condition_sets": ["document_clearance"],
+            },
         ],
     },
     {
         "name": "premium_user",
         "permissions": [
-            {"resource": "financial_advice", "actions": ["receive"]},
-            {"resource": "financial_document", "actions": ["read"]},
-            {"resource": "portfolio", "actions": ["update"]},
+            {
+                "resource": "financial_advice",
+                "actions": ["receive"],
+                "attributes": {"is_ai_generated": ["true", "false"]},
+                "condition_sets": ["opt_in_check", "risk_level_check"],
+            },
+            {
+                "resource": "financial_document",
+                "actions": ["read"],
+                "condition_sets": ["document_clearance"],
+            },
+            {
+                "resource": "portfolio",
+                "actions": ["update", "read", "analyze"],
+                "attributes": {"value_tier": ["premium", "standard"]},
+            },
         ],
     },
 ]
 
 
 async def create_permit_config():
-    # Create resources
-    for resource in resources:
-        try:
-            await permit.api.resources.create(resource)
-            print(f"Created resource: {resource['name']}")
-        except Exception as e:
-            print(f"Error creating resource {resource['name']}: {str(e)}")
+    """Create all required configurations in Permit.io"""
+    try:
+        print("\n=== Starting Permit.io Configuration ===\n")
 
-    # Create roles
-    for role in roles:
-        try:
-            # Build role permissions list
-            role_permissions = []
-            for permission in role.get("permissions", []):
-                role_permissions.extend(
-                    [
-                        f"{permission['resource']}:{action}"
-                        for action in permission["actions"]
-                    ]
-                )
+        # Create resources first
+        print("\nCreating resources...")
+        for resource in resources:
+            try:
+                print(f"\nAttempting to create resource: {resource['name']}")
+                print(f"Resource config: {resource}")
+                await permit.api.resources.create(resource)
+                print(f"✓ Successfully created resource: {resource['name']}")
+            except Exception as e:
+                print(f"✗ Failed to create resource {resource['name']}")
+                print(f"Error details: {str(e)}")
+                raise
 
-            # Create role object
-            role_obj = {
-                "name": role["name"],
-                "key": role["name"].lower().replace(" ", "_"),
-                "permissions": role_permissions,
-                "description": f"Role for {role['name']}",
-            }
+        # Create roles with simpler permission format
+        print("\nCreating roles...")
+        for role in roles:
+            try:
+                print(f"\nAttempting to create role: {role['name']}")
+                # Convert permissions to string format
+                permissions = []
+                for permission in role.get("permissions", []):
+                    for action in permission["actions"]:
+                        permissions.append(f"{permission['resource']}:{action}")
 
-            await permit.api.roles.create(role_obj)
-            print(f"Created role: {role['name']}")
-        except Exception as e:
-            print(f"Error creating role {role['name']}: {str(e)}")
+                # Create role object with string permissions
+                role_obj = {
+                    "name": role["name"],
+                    "key": role["name"].lower().replace(" ", "_"),
+                    "permissions": permissions,
+                    "description": f"Role for {role['name']} with ABAC rules",
+                }
+                print(f"Role configuration: {role_obj}")
+                await permit.api.roles.create(role_obj)
+                print(f"✓ Successfully created role: {role['name']}")
+            except Exception as e:
+                print(f"✗ Failed to create role {role['name']}")
+                print(f"Error details: {str(e)}")
+                raise
+
+        # Create user sets
+        print("\nCreating user sets...")
+        for user_set in user_sets:
+            try:
+                print(f"\nAttempting to create user set: {user_set['name']}")
+                print(f"User set config: {user_set}")
+                await permit.api.condition_sets.create(user_set)
+                print(f"✓ Successfully created user set: {user_set['name']}")
+            except Exception as e:
+                print(f"✗ Failed to create user set {user_set['name']}")
+                print(f"Error details: {str(e)}")
+                raise
+
+        # Create resource sets
+        print("\nCreating resource sets...")
+        for resource_set in resource_sets:
+            try:
+                print(f"\nAttempting to create resource set: {resource_set['name']}")
+                print(f"Resource set config: {resource_set}")
+                await permit.api.condition_sets.create(resource_set)
+                print(f"✓ Successfully created resource set: {resource_set['name']}")
+            except Exception as e:
+                print(f"✗ Failed to create resource set {resource_set['name']}")
+                print(f"Error details: {str(e)}")
+                raise
+
+        print("\n=== Configuration completed successfully ===\n")
+
+    except Exception as e:
+        print(f"\n✗ Configuration failed")
+        print(f"Final error: {str(e)}")
+        raise
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
-# Fine-Grained Security for AI Agents
+# Fine-Grained Permissions for AI Agents
 
-This example demonstrates implementing a secure financial advisor agent using PydanticAI with four distinct security perimeters. It shows how to build a production-ready AI system that enforces certification requirements, regulatory compliance, and proper risk management.
+This example demonstrates implementing a secure financial advisor agent using PydanticAI with four distinct access control perimeters. It shows how to build a production-ready AI system that enforces certification requirements, regulatory compliance, and proper risk management.
 
 Demonstrates:
 
@@ -11,15 +11,14 @@ Demonstrates:
 
 ## Security Perimeters Overview
 
-### Prompt Validation
+### Prompt Filtering
 
-Validates whether users have explicitly consented to receive AI-generated financial advice.
+The first perimeter to secure our financial advisor agent focuses on validating and filtering user inputs before they reach the AI model. This ensures that users can only make requests within their permission scope and prevents unauthorized access or misuse of AI capabilities. By implementing this perimeter, we can control which users can access specific AI features and ensure compliance with usage policies.
 
-Key checks:
+In our financial advisor example, this perimeter:
 
-- User has explicitly opted in to AI financial advice
-- Consent is properly recorded and verified
-- Compliance with regulatory requirements for automated advice
+- Checks user opt-in status for AI-generated advice
+- Classifies query intent to apply appropriate permissions
 
 ```python
 @financial_agent.tool
@@ -29,14 +28,14 @@ query: FinancialQuery,
 ) -> Dict[str, bool]:
 ```
 
-### RAG Permissions
+### Data Protection
 
-Controls access to financial knowledge base and documentation based on user permissions and document classification levels
+The second perimeter manages access to the knowledge and data sources that the AI system can reference. This critical layer ensures that sensitive information is only accessible to authorized users and that the AI model respects data classification levels. It implements the principle of least privilege for data access and maintains information barriers.
 
-- Document classification levels (public, restricted, confidential)
+In our financial advisor example, this perimeter:
+
+- Controls access to sensitive financial knowledge base and documentation
 - User clearance level verification
-- Regulatory compliance for information access
-- Audit trail of document access
 
 ```python
 @financial_agent.tool
@@ -44,17 +43,16 @@ async def access_financial_knowledge(
 ctx: RunContext[PermitDeps],
 query: FinancialQuery
 ) -> List[str]:
-
 ```
 
-### Action Permissions
+### Secure External Access
 
-Controls permissions for sensitive financial operations, particularly portfolio modifications.
+The third perimeter protects interactions with external systems and APIs. This layer ensures that AI systems can only perform authorized operations on external resources and maintains proper security boundaries. It prevents unauthorized system access and ensures proper authentication and authorization for external interactions.
 
-- Portfolio ownership verification
-- User authorization level
-- Transaction limits compliance
-- Account access restrictions
+In our financial advisor example, this perimeter:
+
+- Controls Portfolio operation authorization
+- Manages External API access control
 
 ```python
 @financial_agent.tool
@@ -63,66 +61,112 @@ ctx: RunContext[PermitDeps],
 action: str,
 context: UserContext
 ) -> bool:
-
 ```
 
-### Response Validation
+### Response Enforcement
 
-Ensures all financial advice responses meet regulatory requirements and include
-necessary disclaimers.
+The final perimeter validates and enforces security policies on AI-generated responses before they reach users. This important layer makes sure that responses meet compliance requirements, contain necessary disclaimers, and don't leak sensitive information. It acts as the last line of defense in maintaining security and compliance.
 
-- Automated advice detection using Permit
-- Regulatory disclaimer insertion
-- Compliance verification
+In our financial advisor example, this perimeter:
 
-```
+- Ensures compliance with financial regulations
+- Manages risk disclosures and disclaimers
+- Prevents unauthorized advice distribution
+
+```python
 @financial_agent.tool
 async def validate_financial_response(
 ctx: RunContext[PermitDeps],
 response: FinancialResponse,
 context: UserContext
 ) -> Dict[str, bool]:
-
 ```
 
 ## Running the Example
 
-First, configure your Permit.io environment:
+First, configure your Permit.io environment (you can get a [free API key here](https://app.permit.io)): by setting the required environment variables:
 
 ```bash
-export PERMIT_API_KEY='your-api-key'
+# Required environment variables
+export PERMIT_KEY='your-api-key'  # Your Permit.io API key
+export PDP_URL='http://localhost:7100'  # Your PDP URL (default: http://localhost:7100)
 ```
 
-Update the API key and PDP url in the example code:
+The code will automatically load these environment variables:
 
 ```python
-Permit(
-token="YOUR_API_KEY", # Replace with your actual API key
-pdp="http://localhost:7766",
+from dotenv import load_dotenv
+import os
+
+# Load environment variables from .env file if present
+load_dotenv()
+
+# Get Permit.io configuration from environment
+PERMIT_KEY = os.environ["PERMIT_KEY"]
+PDP_URL = os.environ.get("PDP_URL", "http://localhost:7100")
+
+# Initialize Permit client with environment configuration
+permit = Permit(
+    token=PERMIT_KEY,
+    pdp=PDP_URL,
 )
 ```
 
-Here's a visualization of the control flow:
+### Setup Steps
 
+1. First, run the configuration script to set up required resources and roles in Permit.io:
+
+```bash
+# This creates all necessary ABAC configurations in Permit.io
+python config.py
 ```
-User Request
-     ↓
-PydanticAI Framework
-     ↓
-validate_financial_query  →  [If fails, stops here]
-     ↓
-advisor certification check
-     ↓
-Claude AI Processing     ←  [PydanticAI hands control to Claude]
-     ↓
-validate_financial_advice →  [If fails, stops here]
-     ↓
-access_financial_knowledge →  [If fails, stops here]
-     ↓
-Compliance Check
-     ↓
-Response to User
+
+The configuration script sets up a complete ABAC (Attribute-Based Access Control) model including:
+
+#### Resources and Attributes
+
+- `financial_advice`: AI-generated advice with risk levels
+- `financial_document`: Documents with classification levels and clearance requirements
+- `financial_response`: Response content with advice detection
+- `portfolio`: Investment portfolios with value tiers
+
+#### Condition Sets
+
+- Document Clearance Check: Validates user's clearance level
+- AI Advice Opt-in Check: Verifies user consent
+
+#### User Sets
+
+- Opted-in Users: Users who consented to AI advice
+- High Clearance Users: Users with elevated access
+
+#### Resource Sets
+
+- Confidential Documents: High-security financial documents
+- High Risk Advice: Financial advice requiring special authorization
+
+#### Roles and Permissions
+
+- Resources: financial_advice, financial_document, financial_response, portfolio
+- Roles: opted_in_user, restricted_user, premium_user
+- Permissions: Various access levels for each role
+
+2. Create users in Permit.io and assign them appropriate roles:
+
+3. With the setup complete and [dependencies installed](./index.md#usage), run the main application:
+
+```bash
+python main.py
 ```
+
+### Control Flow
+
+Here is how our permission table looks like.
+![](https://paper-attachments.dropboxusercontent.com/s_E3A3FFD2465F4FACEBBD800D0818BA4A090949B78CA9AABB52EB83BD4AF7510E_1739477683013_Screenshot+2025-02-13+at+21.11.53.png)
+
+![](/static/img/pixel.gif)
+
+![](https://paper-attachments.dropboxusercontent.com/s_E3A3FFD2465F4FACEBBD800D0818BA4A090949B78CA9AABB52EB83BD4AF7510E_1739477802413_Screenshot+2025-02-13+at+21.12.12.png)
 
 ## Running the Example
 
