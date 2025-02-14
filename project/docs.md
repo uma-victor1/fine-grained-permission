@@ -9,11 +9,11 @@ Demonstrates:
 - [result validation](../results.md#result-validators-functions)
 - [tools](../tools.md)
 
-## Security Perimeters Overview
+## Access Control Perimeters Overview
 
 ### Prompt Filtering
 
-The first perimeter to secure our financial advisor agent focuses on validating and filtering user inputs before they reach the AI model. This ensures that users can only make requests within their permission scope and prevents unauthorized access or misuse of AI capabilities. By implementing this perimeter, we can control which users can access specific AI features and ensure compliance with usage policies.
+The first perimeter to secure our financial advisor agent focuses on checking user permissions for recieving AI advice before they reach the AI model. This ensures that users can only make requests within their permission scope. By implementing this perimeter, we can check if users opt-in for AI finance advice.
 
 In our financial advisor example, this perimeter:
 
@@ -30,7 +30,7 @@ query: FinancialQuery,
 
 ### Data Protection
 
-The second perimeter manages access to the knowledge and data sources that the AI system can reference. This critical layer ensures that sensitive information is only accessible to authorized users and that the AI model respects data classification levels. It implements the principle of least privilege for data access and maintains information barriers.
+The second perimeter manages access to the knowledge and data sources that the AI agent can reference. This layer ensures that sensitive information is only accessible to authorized users and that the AI model respects data classification levels.
 
 In our financial advisor example, this perimeter:
 
@@ -47,7 +47,7 @@ query: FinancialQuery
 
 ### Secure External Access
 
-The third perimeter protects interactions with external systems and APIs. This layer ensures that AI systems can only perform authorized operations on external resources and maintains proper security boundaries. It prevents unauthorized system access and ensures proper authentication and authorization for external interactions.
+The third perimeter protects interactions with external systems and APIs. This layer ensures that the AI agent can only perform authorized operations on external resources and maintains proper security boundaries. It prevents unauthorized system access and ensures proper authentication and authorization for external interactions.
 
 In our financial advisor example, this perimeter:
 
@@ -89,7 +89,7 @@ First, configure your Permit.io environment (you can get a [free API key here](h
 ```bash
 # Required environment variables
 export PERMIT_KEY='your-api-key'  # Your Permit.io API key
-export PDP_URL='http://localhost:7100'  # Your PDP URL (default: http://localhost:7100)
+export PDP_URL='http://localhost:7766'  # Your PDP URL (default: http://localhost:7766)
 ```
 
 The code will automatically load these environment variables:
@@ -103,7 +103,7 @@ load_dotenv()
 
 # Get Permit.io configuration from environment
 PERMIT_KEY = os.environ["PERMIT_KEY"]
-PDP_URL = os.environ.get("PDP_URL", "http://localhost:7100")
+PDP_URL = os.environ.get("PDP_URL", "http://localhost:7766")
 
 # Initialize Permit client with environment configuration
 permit = Permit(
@@ -161,12 +161,9 @@ python main.py
 
 ### Control Flow
 
+![image](https://hackmd.io/_uploads/HJeipK3tkx.png)
+
 Here is how our permission table looks like.
-![](https://paper-attachments.dropboxusercontent.com/s_E3A3FFD2465F4FACEBBD800D0818BA4A090949B78CA9AABB52EB83BD4AF7510E_1739477683013_Screenshot+2025-02-13+at+21.11.53.png)
-
-![](/static/img/pixel.gif)
-
-![](https://paper-attachments.dropboxusercontent.com/s_E3A3FFD2465F4FACEBBD800D0818BA4A090949B78CA9AABB52EB83BD4AF7510E_1739477802413_Screenshot+2025-02-13+at+21.12.12.png)
 
 ## Running the Example
 

@@ -26,7 +26,7 @@ load_dotenv()  # load environment variables
 PERMIT_KEY = os.environ.get("PERMIT_KEY")
 if not PERMIT_KEY:
     raise ValueError("PERMIT_KEY environment variable not set")
-PDP_URL = os.environ.get("PDP_URL", "http://localhost:7100")
+PDP_URL = os.environ.get("PDP_URL", "http://localhost:7766")
 
 
 class SecurityError(Exception):
@@ -210,6 +210,7 @@ async def access_financial_knowledge(
         # Create resource instances for each document
         resources = [
             {
+                "id": doc.id,
                 "type": "financial_document",
                 "attributes": {
                     "doc_type": doc.type,
@@ -221,9 +222,8 @@ async def access_financial_knowledge(
 
         # Use Permit's filter_objects to get allowed documents
         allowed_docs = await ctx.deps.permit.filter_objects(
-            ctx.deps.user_id, "read", resources
+            ctx.deps.user_id, "read", {}, resources
         )
-
         # Return only the documents that were allowed
         allowed_ids = {doc["id"] for doc in allowed_docs}
         return [doc for doc in documents if doc.id in allowed_ids]
@@ -386,8 +386,8 @@ async def main():
         pdp=PDP_URL,
     )
 
-    # Create security context for the user
-    deps = PermitDeps(permit=permit, user_id="user@example.com")
+    # Create security context for the user (this user has been created during setup)
+    deps = PermitDeps(permit=permit, user_id="restricted@example.com")
 
     try:
         # Example: Process a financial query with all security perimeters
