@@ -159,11 +159,11 @@ The configuration script sets up a complete ABAC (Attribute-Based Access Control
 python main.py
 ```
 
-### Control Flow
-
-![image](https://hackmd.io/_uploads/HJeipK3tkx.png)
+### Policy Table
 
 Here is how our permission table looks like.
+
+![image](https://hackmd.io/_uploads/HJeipK3tkx.png)
 
 ## Running the Example
 

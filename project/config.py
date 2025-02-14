@@ -248,6 +248,7 @@ async def create_permit_config():
                         "attributes": user["attributes"],
                     }
                 )
+                # for assigning a role to the user created
                 await permit.api.users.assign_role(
                     {
                         "user": user["key"],
