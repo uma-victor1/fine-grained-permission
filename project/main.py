@@ -97,7 +97,11 @@ class PermitDeps:
 financial_agent = Agent(
     "anthropic:claude-3-5-sonnet-latest",
     deps_type=PermitDeps,
-    system_prompt="You are a secure financial advisor assistant that adheres to regulatory compliance.",
+    result_type=FinancialResponse,
+    system_prompt="You are a financial advisor. Follow these steps in order:"
+    "1. ALWAYS check user permissions first"
+    "2. Only proceed with advice if user has opted into AI advice"
+    "3. Only attempt document access if user has required permissions",
 )
 
 
@@ -166,19 +170,15 @@ async def validate_financial_query(
             # The resource being accessed
             {
                 "type": "financial_advice",
-                "attributes": {"is_ai_generated": str(is_seeking_advice)},
+                "attributes": {"is_ai_generated": is_seeking_advice},
             },
         )
 
         if not permitted:
             if is_seeking_advice:
-                raise SecurityError(
-                    "User has not opted in to receive AI-generated financial advice"
-                )
+                return "User has not opted in to receive AI-generated financial advice"
             else:
-                raise SecurityError(
-                    "User does not have permission to access this information"
-                )
+                return "User does not have permission to access this information"
 
         return True
 
@@ -188,7 +188,7 @@ async def validate_financial_query(
 
 @financial_agent.tool
 async def access_financial_knowledge(
-    ctx: RunContext[PermitDeps], documents: List[FinancialDocument]
+    ctx: RunContext[PermitDeps], usr: UserContext, documents: List[FinancialDocument]
 ) -> List[FinancialDocument]:
     """SECURITY PERIMETER 2: Data Protection
     Controls access to financial knowledge base and documentation based on user permissions
@@ -387,26 +387,19 @@ async def main():
     )
 
     # Create security context for the user (this user has been created during setup)
-    deps = PermitDeps(permit=permit, user_id="restricted@example.com")
+    deps = PermitDeps(permit=permit, user_id="user@example.com")
 
     try:
-        # Example: Process a financial query with all security perimeters
+        # Example: Process a financial query
         result = await financial_agent.run(
-            "What are some basic investment strategies for beginners?",
+            "Can you suggest some basic investment strategies for beginners?",
             deps=deps,
         )
         print(f"Secure response: {result.data}")
 
-        # Example: Portfolio analysis with elevated permissions
-        portfolio_result = await financial_agent.run(
-            "Can you analyze my investment portfolio? My current allocation is 60% stocks, 30% bonds, 10% cash.",
-            deps=deps,
-        )
-        print(f"Portfolio analysis: {portfolio_result.data}")
-
         # Example: Access to protected documentation
         docs_result = await financial_agent.run(
-            "Can you provide advanced tax optimization strategies?",
+            "Please check my access level for tax documents and tell me what I'm permitted to see.",
             deps=deps,
         )
         print(f"Protected document access: {docs_result.data}")

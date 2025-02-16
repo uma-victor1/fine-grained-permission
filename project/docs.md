@@ -117,8 +117,7 @@ permit = Permit(
 1. First, run the configuration script to set up required resources and roles in Permit.io:
 
 ```bash
-# This creates all necessary ABAC configurations in Permit.io
-python config.py
+python/uv-run -m pydantic_ai_examples.secure-ai-config
 ```
 
 The configuration script sets up a complete ABAC (Attribute-Based Access Control) model including:
@@ -143,35 +142,41 @@ The configuration script sets up a complete ABAC (Attribute-Based Access Control
 #### Resource Sets
 
 - Confidential Documents: High-security financial documents
-- High Risk Advice: Financial advice requiring special authorization
+- AI Finance Advice: Financial advice with AI
 
 #### Roles and Permissions
 
 - Resources: financial_advice, financial_document, financial_response, portfolio
-- Roles: opted_in_user, restricted_user, premium_user
+- Roles: restricted_user, premium_user
 - Permissions: Various access levels for each role
 
-2. Create users in Permit.io and assign them appropriate roles:
+## Policy Table
 
-3. With the setup complete and [dependencies installed](./index.md#usage), run the main application:
+Here is how our permission table looks like. With our ABAC policy implementation in Permit.io we defined granular permissions for different user roles:
 
-```bash
-python main.py
-```
+![permit policy](https://hackmd.io/_uploads/ryOKcyxqJx.png)
 
-### Policy Table
+## Demo
 
-Here is how our permission table looks like.
-
-![image](https://hackmd.io/_uploads/HJeipK3tkx.png)
+A video demonstration of the Financial Advisor AI Agent showcasing:
+![agent demo](https://paper-attachments.dropboxusercontent.com/s_E3A3FFD2465F4FACEBBD800D0818BA4A090949B78CA9AABB52EB83BD4AF7510E_1739747004618_permissionagentdemo.gif)
+You can try the demo yourself by following the setup instructions below.
 
 ## Running the Example
 
 With [dependencies installed and environment variables set](./index.md#usage), run:
 
 ```bash
+python/uv-run -m pydantic_ai_examples.secure-ai-config
+```
+
+To set up our Permit.io configuration.
+
+```bash
 python/uv-run -m pydantic_ai_examples.secure-ai-agent
 ```
+
+To run our app.
 
 ## Example Code
 

@@ -105,6 +105,19 @@ resources = [
     },
 ]
 
+# Define user attributes
+user_attributes = [
+    {
+        "key": "clearance_level",
+        "type": "string",
+        "description": "User's security clearance level (low, high)",
+    },
+    {
+        "key": "ai_advice_opted_in",
+        "type": "bool",
+        "description": "Whether user has opted in to receive AI-generated advice",
+    },
+]
 
 # Define user sets with their attributes
 user_sets = [
@@ -137,46 +150,32 @@ resource_sets = [
         },
     },
     {
-        "key": "high_risk_advice",
+        "key": "finance_advice",
         "type": "resourceset",
         "resource_id": "financial_advice",
-        "name": "High Risk Financial Advice",
-        "description": "Financial advice with high risk level",
-        "conditions": {"allOf": [{"resource.risk_level": {"equals": "high"}}]},
+        "name": "Financial Advice",
+        "description": "Financial advice with ai content",
+        "conditions": {"allOf": [{"resource.is_ai_generated": {"equals": True}}]},
     },
 ]
 
 # Define condition set rules to link user sets with resource sets
 condition_set_rules = [
     {
+        "user_set": "opted_in_users",
+        "permission": "financial_advice:receive",
+        "resource_set": "finance_advice",
+    },
+    {
         "user_set": "high_clearance_users",
         "permission": "financial_document:read",
         "resource_set": "confidential_docs",
-    },
-    {
-        "user_set": "opted_in_users",
-        "permission": "financial_advice:receive",
-        "resource_set": "high_risk_advice",
     },
 ]
 
 # Define roles with ABAC rules
 roles = [
-    {
-        "name": "restricted_user",
-        "permissions": [
-            {
-                "resource": "financial_advice",
-                "actions": ["receive"],
-                "attributes": {"is_ai_generated": ["false"]},
-            },
-            {
-                "resource": "financial_document",
-                "actions": ["read"],
-                "condition_sets": ["document_clearance"],
-            },
-        ],
-    },
+    {"name": "restricted_user"},
     {
         "name": "premium_user",
         "permissions": [
@@ -232,37 +231,7 @@ async def create_permit_config():
     try:
         print("\n=== Starting Permit.io Configuration ===\n")
 
-        # Create users first
-        print("\nCreating users...")
-        for user in example_users:
-            try:
-                print(f"\nAttempting to create user: {user['email']}")
-                print(f"User config: {user}")
-                # Create the user with correct sync format
-                await permit.api.users.sync(
-                    {
-                        "key": user["key"],
-                        "email": user["email"],
-                        "first_name": user["first_name"],
-                        "last_name": user["last_name"],
-                        "attributes": user["attributes"],
-                    }
-                )
-                # for assigning a role to the user created
-                await permit.api.users.assign_role(
-                    {
-                        "user": user["key"],
-                        "role": user["role"],
-                        "tenant": "default",
-                    }
-                )
-                print(f"✓ Successfully created user: {user['email']}")
-            except Exception as e:
-                print(f"✗ Failed to create user {user['email']}")
-                print(f"Error details: {str(e)}")
-                raise
-
-        # Create resources
+        # Create resources first
         print("\nCreating resources...")
         for resource in resources:
             try:
@@ -272,6 +241,20 @@ async def create_permit_config():
                 print(f"✓ Successfully created resource: {resource['name']}")
             except Exception as e:
                 print(f"✗ Failed to create resource {resource['name']}")
+                print(f"Error details: {str(e)}")
+                raise
+
+        # Create user attributes
+        print("\nCreating user attributes...")
+        for attr in user_attributes:
+            try:
+                print(f"\nAttempting to create user attribute: {attr['key']}")
+                print(f"Attribute config: {attr}")
+                await permit.api.resource_attributes.create("__user", attr)
+
+                print(f"✓ Successfully created user attribute: {attr['key']}")
+            except Exception as e:
+                print(f"✗ Failed to create user attribute {attr['key']}")
                 print(f"Error details: {str(e)}")
                 raise
 
@@ -301,7 +284,7 @@ async def create_permit_config():
                 print(f"Error details: {str(e)}")
                 raise
 
-        # Create user sets
+        # # Create user sets
         print("\nCreating user sets...")
         for user_set in user_sets:
             try:
@@ -337,6 +320,38 @@ async def create_permit_config():
                 print(f"✓ Successfully created condition set rule")
             except Exception as e:
                 print(f"✗ Failed to create condition set rule")
+                print(f"Error details: {str(e)}")
+                raise
+
+        # Create users and assign roles last
+        print("\nCreating users and assigning roles...")
+        for user in example_users:
+            try:
+                print(f"\nAttempting to create user: {user['email']}")
+                print(f"User config: {user}")
+                # Create the user with correct sync format
+                await permit.api.users.sync(
+                    {
+                        "key": user["key"],
+                        "email": user["email"],
+                        "first_name": user["first_name"],
+                        "last_name": user["last_name"],
+                        "attributes": user["attributes"],
+                    }
+                )
+                # Assign role to the user
+                await permit.api.users.assign_role(
+                    {
+                        "user": user["key"],
+                        "role": user["role"],
+                        "tenant": "default",
+                    }
+                )
+                print(
+                    f"✓ Successfully created user: {user['email']} with role: {user['role']}"
+                )
+            except Exception as e:
+                print(f"✗ Failed to create/assign role to user {user['email']}")
                 print(f"Error details: {str(e)}")
                 raise
 
