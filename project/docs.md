@@ -159,7 +159,9 @@ Here is how our permission table looks like. With our ABAC policy implementation
 ## Demo
 
 A video demonstration of the Financial Advisor AI Agent showcasing:
-![agent demo](https://paper-attachments.dropboxusercontent.com/s_E3A3FFD2465F4FACEBBD800D0818BA4A090949B78CA9AABB52EB83BD4AF7510E_1739747004618_permissionagentdemo.gif)
+
+<a href="https://imgur.com/MFNGtDV"><img src="https://i.imgur.com/MFNGtDV.gif" title="source: imgur.com" /></a>
+
 You can try the demo yourself by following the setup instructions below.
 
 ## Running the Example
