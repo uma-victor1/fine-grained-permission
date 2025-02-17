@@ -185,3 +185,13 @@ To run our app.
 ```python {title="secure_ai_agent.py"}
 #! examples/pydantic_ai_examples/secure-ai-agent.py
 ```
+
+## Further Reading
+
+To learn more about the concepts used in this implementation, check out these helpful resources:
+
+1. [What is Fine-Grained Authorization (FGA)?](https://www.permit.io/blog/what-is-fine-grained-authorization-fga) - Learn about the fundamentals of FGA and how it differs from traditional access control methods.
+
+2. [How to Implement Attribute-Based Access Control (ABAC) Authorization?](https://www.permit.io/blog/how-to-implement-abac) - Understand how to design and implement ABAC systems effectively.
+
+3. [RBAC VS ABAC: Choosing the Right Authorization Policy Model](https://www.permit.io/blog/rbac-vs-abac) - Explore how RBAC complements ABAC in modern authorization systems.
